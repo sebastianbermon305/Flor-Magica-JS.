@@ -280,6 +280,46 @@ function cuadro(ahora) {
 window.addEventListener("resize", ajustar);
 ajustar();
 requestAnimationFrame(cuadro);
+  // ---------- Música ----------
+const MUSICA = "musica.mp3";   // nombre de tu archivo de música (súbelo junto a index.html)
+const VOLUMEN = 0.6;           // de 0 (silencio) a 1 (máximo)
+(function () {
+  const audio = new Audio(MUSICA);
+  audio.loop = true; audio.volume = VOLUMEN; audio.preload = "auto";
+
+  const btn = document.createElement("button");
+  btn.setAttribute("aria-label", "Activar o silenciar la música");
+  Object.assign(btn.style, {
+    position: "fixed", right: "16px", bottom: "16px", width: "48px", height: "48px",
+    borderRadius: "50%", border: "1px solid rgba(255,150,230,.7)", background: "rgba(0,0,0,.55)",
+    color: "#fff", fontSize: "22px", cursor: "pointer", zIndex: 10
+  });
+  let sonando = false, silenciadaPorUsuario = false;
+  const actualizar = () => { btn.textContent = sonando ? "🔊" : "🔇"; };
+
+  async function iniciar() {
+    try { await audio.play(); sonando = true; } catch (e) { sonando = false; }
+    actualizar();
+  }
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    if (sonando) { audio.pause(); sonando = false; silenciadaPorUsuario = true; actualizar(); }
+    else { silenciadaPorUsuario = false; iniciar(); }
+  });
+
+  // Los navegadores no dejan sonar nada hasta que la persona toca la pantalla:
+  // la música arranca sola con el primer toque (o tecla) en cualquier parte.
+  function primerToque() {
+    window.removeEventListener("click", primerToque);
+    window.removeEventListener("keydown", primerToque);
+    if (!silenciadaPorUsuario && !sonando) iniciar();
+  }
+  window.addEventListener("click", primerToque);
+  window.addEventListener("keydown", primerToque);
+
+  audio.addEventListener("error", () => { btn.style.display = "none"; console.warn("No pude cargar la música:", MUSICA); });
+  document.body.appendChild(btn); actualizar();
+})();
 </script>
 </body>
 </html>
