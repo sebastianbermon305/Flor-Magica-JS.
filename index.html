@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flor mágica</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+
+<script>
+// =====================  AJUSTES (puedes cambiarlos)  =====================
+
+// Lista de tus fotos. Cada nombre debe ser IGUAL al archivo que subas a la carpeta "fotos"
+// (respeta mayúsculas, minúsculas y la extensión). Agrega o quita líneas como quieras.
+const FOTOS = [
+  "Fotos/foto1.jpeg",
+  "Fotos/foto2.jpeg",
+  "Fotos/foto3.jpeg",
+  "Fotos/foto4.jpeg",
+  "Fotos/foto5.jpeg",
+  "Fotos/foto6.jpeg",
+  "Fotos/foto7.jpeg",
+  "Fotos/foto8.jpeg",
+  "Fotos/foto9.jpeg",
+  "Fotos/foto10.jpeg",
+  "Fotos/foto11.jpeg",
+  "Fotos/foto12.jpeg",
+  "Fotos/foto13.jpeg",
+  "Fotos/foto14.jpeg",
+  "Fotos/foto15.jpeg",
+  "Fotos/foto16.jpeg",
+  "Fotos/foto17.jpeg",
+  "Fotos/foto18.jpeg",
+  "Fotos/foto19.jpeg",
+  "Fotos/foto20.jpeg",
+  "Fotos/foto21.jpeg",
+  "Fotos/foto22.jpeg",
+  "Fotos/foto23.jpeg",
+  "Fotos/foto24.jpeg",
+  "Fotos/foto25.jpeg",
+  "Fotos/foto26.jpeg",
+];
+
+const NUM_FOTOS = 4;          // cuántas fotos se ven a la vez
+const TAM_FOTO = 130;         // tamaño de cada foto
+const VEL_FOTO = 1.0;         // 0.5 = más lento, 2 = más rápido
+const NUM_BRILLOS = 45;       // destellos que titilan (0 = ninguno)
+const VEL_BRILLO = 1.0;       // 0.5 = más lento, 2 = más rápido
+const VEL_GIRO = 60;          // grados por segundo (negativo = sentido contrario)
+const PUNTOS_POR_FOTOGRAMA = 40; // velocidad de construcción: más alto = se construye más rápido
+const PASOS_ARCO = 15;        // puntos por arco (curvas más suaves = más puntos)
+
+// ==========================  CÓDIGO  ==========================
+const canvas = document.getElementById("lienzo");
+const ctx = canvas.getContext("2d");
+const rad = g => g * Math.PI / 180;
+const rand = (a, b) => a + Math.random() * (b - a);
+const hsl = (h, l, a = 1) => `hsla(${(((h % 1) + 1) % 1) * 360},100%,${l * 100}%,${a})`;
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ---------- Pantalla ----------
+let W, H, DPR, escala, mitadW, mitadH, tamFoto, estrellasCv;
+
+function ajustar() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  escala = Math.min(W, H) / 900;                 // el diseño original es de 900 x 900
+  mitadW = W / 2 / escala; mitadH = H / 2 / escala;
+  tamFoto = TAM_FOTO * Math.max(escala, 0.75) / escala;   // en celulares las fotos no se ven diminutas
+  crearEstrellas();
+}
+
+function crearEstrellas() {
+  estrellasCv = document.createElement("canvas");
+  estrellasCv.width = canvas.width; estrellasCv.height = canvas.height;
+  const c = estrellasCv.getContext("2d");
+  c.setTransform(DPR * escala, 0, 0, DPR * escala, canvas.width / 2, canvas.height / 2);
+  const rnd = mulberry32(7);
+  const n = Math.round(180 * (4 * mitadW * mitadH) / (860 * 860));
+  for (let i = 0; i < n; i++) {
+    const x = (rnd() * 2 - 1) * mitadW, y = (rnd() * 2 - 1) * mitadH;
+    const b = Math.round((0.25 + rnd() * 0.65) * 255);
+    const tam = [1, 2, 2, 3][Math.floor(rnd() * 4)];
+    c.fillStyle = `rgb(${b},${b},${b})`;
+    c.beginPath(); c.arc(x, y, Math.max(tam / 2, 0.7 / escala), 0, Math.PI * 2); c.fill();
+  }
+}
+
+// ---------- Geometría de la flor (igual que en la versión de Python) ----------
+const trazos = [];
+function capa(radio, vueltas, giro, hueIni, hueFin, grosor, anguloIni) {
+  let x = 0, y = 0, h = anguloIni;
+  for (let i = 0; i < vueltas; i++) {
+    const tono = hueIni + (hueFin - hueIni) * i / vueltas;
+    const luz = Math.min(0.55 + 0.35 * (i / vueltas), 0.9);
+    const r = radio - i * (radio / (vueltas + 25));
+    const pts = [[x, y]];
+    for (const giroDespues of [90, giro]) {          // dos arcos de 90° por vuelta
+      const cx = x + r * Math.cos(rad(h + 90)), cy = y + r * Math.sin(rad(h + 90));
+      for (let k = 1; k <= PASOS_ARCO; k++) {
+        const a = rad(h - 90 + 90 * k / PASOS_ARCO);
+        pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      [x, y] = pts[pts.length - 1];
+      h += 90 + giroDespues;
+    }
+    trazos.push({ pts, color: hsl(tono, luz), w: grosor });
+  }
+}
+capa(270, 235, 18, 0.88, 1.08, 1.2, 45);
+capa(150, 150, 18, 0.72, 0.92, 1.0, 45 + 9);
+capa(70, 90, 18, 0.12, 0.16, 0.8, 45 + 18);
+
+// La flor se dibuja en un lienzo aparte; después solo se gira ese dibujo (muy fluido)
+const EXT = 1000, RES = 1800;
+const flor = document.createElement("canvas");
+flor.width = flor.height = RES;
+const fctx = flor.getContext("2d");
+fctx.translate(RES / 2, RES / 2); fctx.scale(RES / EXT, RES / EXT);
+fctx.lineCap = "round"; fctx.lineJoin = "round";
+
+let ti = 0, pi = 0, construido = false;
+function avanzarConstruccion() {
+  let n = PUNTOS_POR_FOTOGRAMA;
+  while (n > 0 && ti < trazos.length) {
+    const t = trazos[ti];
+    fctx.strokeStyle = t.color; fctx.lineWidth = t.w;
+    fctx.beginPath();
+    fctx.moveTo(t.pts[pi][0], -t.pts[pi][1]);
+    while (n > 0 && pi < t.pts.length - 1) { pi++; fctx.lineTo(t.pts[pi][0], -t.pts[pi][1]); n--; }
+    fctx.stroke();
+    if (pi >= t.pts.length - 1) { ti++; pi = 0; }
+  }
+  if (ti >= trazos.length) construido = true;
+}
+
+function dibujarCentro() {
+  for (let k = 0, tam = 46; tam > 0; tam -= 4, k++) {
+    ctx.fillStyle = hsl(0.10 + 0.005 * k, Math.min(0.45 + 0.04 * k, 0.95));
+    ctx.beginPath(); ctx.arc(0, 0, tam / 2, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = "rgb(255,242,153)";
+  for (let k = 0; k < 24; k++) {
+    const a = rad(k * 15);
+    ctx.beginPath(); ctx.arc(34 * Math.cos(a), 34 * Math.sin(a), 2, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// ---------- Brillos ----------
+const PALETA = [[255, 255, 255], [255, 191, 235], [255, 230, 128], [179, 230, 255], [217, 179, 255]];
+const brillos = [];
+function reubicarBrillo(b) {
+  b.x = rand(-mitadW, mitadW); b.y = rand(-mitadH, mitadH);
+  b.R = rand(6, 18);
+  b.vel = rand(0.03, 0.08) * VEL_BRILLO * 50;        // radianes por segundo
+  b.color = PALETA[Math.floor(Math.random() * PALETA.length)];
+  b.fase = 0;
+}
+for (let i = 0; i < NUM_BRILLOS; i++) {
+  const b = {}; reubicarBrillo(b); b.fase = rand(0, Math.PI); brillos.push(b);
+}
+function animarBrillos(dt) {
+  for (const b of brillos) {
+    b.fase += b.vel * dt;
+    if (b.fase >= Math.PI) reubicarBrillo(b);        // reaparece en otro lugar
+    const luz = Math.sin(b.fase) ** 2;               // 0 -> 1 -> 0
+    const R = b.R * (0.35 + 0.65 * luz);
+    ctx.fillStyle = `rgba(${b.color[0]},${b.color[1]},${b.color[2]},${luz})`;
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) {                    // estrella de 4 puntas
+      const a = rad(k * 45), rr = k % 2 === 0 ? R : R * 0.2;
+      const px = b.x + rr * Math.cos(a), py = b.y + rr * Math.sin(a);
+      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+// ---------- Fotos ----------
+const fotos = [];     // cada foto ya recortada, redondeada y con borde
+const slots = [];
+
+function rectRedondo(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r);
+  g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r);
+  g.lineTo(x + r, y + h); g.arcTo(x, y + h, x, y + h - r, r);
+  g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r); g.closePath();
+}
+function prepararFoto(img) {
+  const S = 320, c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d");
+  const lado = Math.min(img.naturalWidth, img.naturalHeight);   // recorte cuadrado centrado
+  const sx = (img.naturalWidth - lado) / 2, sy = (img.naturalHeight - lado) / 2;
+  g.save(); rectRedondo(g, 0, 0, S, S, S / 7); g.clip();
+  g.drawImage(img, sx, sy, lado, lado, 0, 0, S, S);
+  g.restore();
+  const borde = 7;
+  g.strokeStyle = "rgb(255,150,230)"; g.lineWidth = borde;
+  rectRedondo(g, borde / 2, borde / 2, S - borde, S - borde, S / 7); g.stroke();
+  return c;
+}
+function cupo() { return Math.min(NUM_FOTOS, fotos.length * 2); }
+
+function reubicarFoto(sl) {
+  const activos = slots.filter(o => o !== sl && o.fase > 0);
+  const enUso = new Set(activos.map(o => o.foto));
+  let libres = fotos.map((_, i) => i).filter(i => !enUso.has(i));
+  if (!libres.length) libres = fotos.map((_, i) => i);
+  sl.foto = libres[Math.floor(Math.random() * libres.length)];
+  const m = tamFoto / 2;
+  let x = 0, y = 0;
+  for (let t = 0; t < 40; t++) {                     // lugar libre, lejos del centro
+    x = rand(-mitadW + m, mitadW - m); y = rand(-mitadH + m, mitadH - m);
+    if (Math.hypot(x, y) < 130) continue;
+    if (activos.every(o => Math.hypot(x - o.x, y - o.y) > tamFoto * 1.3)) break;
+  }
+  sl.x = x; sl.y = y;
+  sl.vel = rand(0.018, 0.03) * VEL_FOTO * 50;
+  sl.fase = -rand(0, 1.2);                           // pausa antes de aparecer
+}
+function animarFotos(dt) {
+  while (slots.length < cupo()) {
+    const sl = { x: 0, y: 0, foto: 0, fase: 0, vel: 1 };
+    slots.push(sl); reubicarFoto(sl); sl.fase -= slots.length * 0.8;   // que no salgan todas juntas
+  }
+  for (let i = 0; i < cupo(); i++) {
+    const sl = slots[i];
+    sl.fase += sl.vel * dt;
+    if (sl.fase >= Math.PI) reubicarFoto(sl);        // otra foto, otro lugar
+    if (sl.fase <= 0) continue;
+    ctx.globalAlpha = Math.sin(sl.fase);             // aparece y se desvanece de verdad
+    ctx.drawImage(fotos[sl.foto], sl.x - tamFoto / 2, sl.y - tamFoto / 2, tamFoto, tamFoto);
+  }
+  ctx.globalAlpha = 1;
+}
+for (const src of FOTOS) {
+  const img = new Image();
+  img.onload = () => fotos.push(prepararFoto(img));
+  img.onerror = () => console.warn("No pude cargar la foto:", src);
+  img.src = src;
+}
+
+// ---------- Bucle principal ----------
+let ultimo = performance.now(), angulo = 0;
+function cuadro(ahora) {
+  const dt = Math.min((ahora - ultimo) / 1000, 0.05);
+  ultimo = ahora;
+  if (!construido) avanzarConstruccion(); else angulo += VEL_GIRO * dt;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(estrellasCv, 0, 0);
+
+  ctx.setTransform(DPR * escala, 0, 0, DPR * escala, canvas.width / 2, canvas.height / 2);
+  ctx.save();
+  ctx.rotate(-rad(angulo));                          // sentido contrario a las agujas del reloj
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(flor, -EXT / 2, -EXT / 2, EXT, EXT);
+  ctx.restore();
+
+  if (construido) { dibujarCentro(); animarBrillos(dt); animarFotos(dt); }
+  requestAnimationFrame(cuadro);
+}
+
+window.addEventListener("resize", ajustar);
+ajustar();
+requestAnimationFrame(cuadro);
+</script>
+</body>
+</html>
